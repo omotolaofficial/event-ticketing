@@ -89,9 +89,15 @@ export function bookTickets(store, eventId, tierId, customerName, quantity) {
         throw new DomainError("Not enough tickets available", "SOLD_OUT");
     }
 
+    let reference = newReference();
+
+    while (store.bookingsByReference.has(reference)) {
+        reference = newReference();
+    }
+
     const booking = {
         id: newId(),
-        reference: newReference(),
+        reference,
         eventId,
         tierId,
         customerName: customerName.trim(),
@@ -195,23 +201,30 @@ export function processWaitlist(store, eventId, tierId) {
 
     const event = store.events.get(eventId);
     const tier = event.tiers.get(tierId);
-    const nextRequest = queue.peek();
+    let firstBooking;
 
-    const available = tier.capacity - tier.sold;
+    while (queue.size > 0) {
+        const nextRequest = queue.peek();
+        const available = tier.capacity - tier.sold;
 
-    if (nextRequest.quantity > available) {
-        return undefined;
+        if (nextRequest.quantity > available) {
+            break;
+        }
+
+        queue.dequeue();
+
+        const booking = bookTickets(
+            store,
+            eventId,
+            tierId,
+            nextRequest.customerName,
+            nextRequest.quantity
+        );
+
+        if (!firstBooking) {
+            firstBooking = booking;
+        }
     }
 
-    queue.dequeue();
-
-    const booking = bookTickets(
-        store,
-        eventId,
-        tierId,
-        nextRequest.customerName,
-        nextRequest.quantity
-    );
-
-    return booking;
+    return firstBooking;
 }

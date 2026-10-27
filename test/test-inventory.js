@@ -1,65 +1,89 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { DomainError } from "../src/domain/errors.js";
 import {
-    createStore,
-    createEvent,
     addTier,
     bookTickets,
-    findBookingByReference,
     cancelBooking,
-    joinWaitlist,
-    processWaitlist,
-
+    createEvent,
+    createStore,
+    findBookingByReference
 } from "../src/domain/inventory.js";
-const store = createStore();
-const event = createEvent(store, "Campus Night");
 
-const regular = addTier(store, event.id, "Regular", 200000, 3);
+test("ticket tiers enforce positive whole-number capacity", () => {
+    const store = createStore();
+    const event = createEvent(store, "Campus Night");
+    const tier = addTier(store, event.id, "Regular", 200000, 3);
 
-const booking = bookTickets(
-    store,
-    event.id,
-    regular.id,
-    "Ada",
-    2
-);
+    assert.equal(tier.capacity, 3);
+    assert.equal(tier.sold, 0);
+    assert.throws(
+        () => addTier(store, event.id, "Zero capacity", 100, 0),
+        error => error instanceof DomainError && error.code === "VALIDATION"
+    );
+    assert.throws(
+        () => addTier(store, event.id, "Fractional capacity", 100, 1.5),
+        error => error instanceof DomainError && error.code === "VALIDATION"
+    );
+});
 
-console.log("Booking:", booking);
-console.log("Tickets sold:", regular.sold);
-console.log("Tickets remaining:", regular.capacity - regular.sold);
+test("rejected bookings leave inventory unchanged and references find their bookings", () => {
+    const store = createStore();
+    const event = createEvent(store, "Campus Night");
+    const tier = addTier(store, event.id, "Regular", 200000, 3);
+    const ada = bookTickets(store, event.id, tier.id, "Ada", 2);
 
+    assert.equal(tier.sold, 2);
+    assert.equal(tier.capacity - tier.sold, 1);
+    assert.throws(
+        () => bookTickets(store, event.id, tier.id, "Bayo", 2),
+        error => error instanceof DomainError && error.code === "SOLD_OUT"
+    );
+    assert.equal(tier.sold, 2);
+    assert.equal(tier.capacity - tier.sold, 1);
 
-try {
-    bookTickets(store, event.id, regular.id, "Bayo", 2);
-} catch (error) {
-    console.log("Booking refused:", error.message);
-}
+    const bayo = bookTickets(store, event.id, tier.id, "Bayo", 1);
+    assert.equal(tier.sold, tier.capacity);
+    assert.notEqual(ada.reference, bayo.reference);
+    assert.equal(findBookingByReference(store, ada.reference), ada);
+    assert.equal(findBookingByReference(store, bayo.reference), bayo);
+    assert.equal(findBookingByReference(store, "UNKNOWN"), undefined);
 
-console.log("Tickets sold after refusal:", regular.sold);
-console.log("Tickets remaining after refusal:", regular.capacity - regular.sold);
+    assert.throws(
+        () => bookTickets(store, event.id, tier.id, "Chika", 1),
+        error => error instanceof DomainError && error.code === "SOLD_OUT"
+    );
+    assert.equal(tier.sold, tier.capacity);
+});
 
-const foundBooking = findBookingByReference(store, booking.reference);
+test("booking quantities must be safe integers from one through ten", () => {
+    const store = createStore();
+    const event = createEvent(store, "Campus Night");
+    const tier = addTier(store, event.id, "Regular", 200000, 20);
 
-console.log("Found booking:", foundBooking);
-console.log("Correct booking found:", foundBooking.id === booking.id);
+    for (const quantity of [0, -1, 1.5, 11, Number.MAX_SAFE_INTEGER + 1]) {
+        assert.throws(
+            () => bookTickets(store, event.id, tier.id, "Ada", quantity),
+            error => error instanceof DomainError && error.code === "VALIDATION"
+        );
+        assert.equal(tier.sold, 0);
+    }
+});
 
-cancelBooking(store, booking.id);
+test("cancellation restores inventory once and rejects a repeated cancellation", () => {
+    const store = createStore();
+    const event = createEvent(store, "Campus Night");
+    const tier = addTier(store, event.id, "Regular", 200000, 3);
+    const booking = bookTickets(store, event.id, tier.id, "Ada", 2);
 
-console.log("Booking status:", booking.status);
-console.log("Tickets sold after cancellation:", regular.sold);
-console.log("Tickets remaining after cancellation:", regular.capacity - regular.sold);
+    cancelBooking(store, booking.id);
 
-const chika = joinWaitlist(store, event.id, regular.id, "Chika", 2);
-const dami = joinWaitlist(store, event.id, regular.id, "Dami", 1);
-
-const key = `${event.id}:${regular.id}`;
-const queue = store.waitlists.get(key);
-
-console.log("First in waitlist:", queue.peek().customerName);
-console.log("Second in waitlist:", dami.customerName);
-console.log("Waitlist size:", queue.size);
-
-const nextBooking = processWaitlist(store, event.id, regular.id);
-
-console.log(
-    "Waitlist booking:",
-    nextBooking ? nextBooking.customerName : "No booking created"
-);
+    assert.equal(booking.status, "cancelled");
+    assert.equal(tier.sold, 0);
+    assert.equal(tier.capacity - tier.sold, 3);
+    assert.throws(
+        () => cancelBooking(store, booking.id),
+        error => error instanceof DomainError && error.code === "VALIDATION"
+    );
+    assert.equal(tier.sold, 0);
+});

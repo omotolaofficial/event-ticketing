@@ -1,28 +1,29 @@
 
+import assert from "node:assert/strict";
+import test from "node:test";
 import { WaitlistQueue } from "../src/domain/waitlistQueue.js";
 
-const queue = new WaitlistQueue();
+test("waitlist queue preserves FIFO order and handles an empty queue", () => {
+    const queue = new WaitlistQueue();
 
-console.log("Initial size:", queue.size);
+    assert.equal(queue.size, 0);
+    assert.equal(queue.peek(), undefined);
+    assert.equal(queue.dequeue(), undefined);
 
-queue.enqueue("Ada");
-queue.enqueue("Bayo");
-queue.enqueue("Chika");
+    queue.enqueue("Ada");
+    queue.enqueue("Bayo");
+    queue.enqueue("Chika");
 
-console.log("Size after adding people:", queue.size);
-console.log("First in line:", queue.peek());
-console.log("Person leaving:", queue.dequeue());
-console.log("Next in line:", queue.peek());
-console.log("Size after one leaves:", queue.size);
+    assert.equal(queue.size, 3);
+    assert.equal(queue.peek(), "Ada");
+    assert.equal(queue.dequeue(), "Ada");
+    assert.equal(queue.peek(), "Bayo");
+    assert.equal(queue.dequeue(), "Bayo");
+    assert.equal(queue.dequeue(), "Chika");
+    assert.equal(queue.size, 0);
+    assert.equal(queue.peek(), undefined);
 
-
-console.log("Person leaving:", queue.dequeue()); // Bayo
-console.log("Person leaving:", queue.dequeue()); // Chika
-
-console.log("Size after everyone leaves:", queue.size);
-console.log("Queue is empty:", queue.peek() === undefined);
-
-queue.enqueue("Dami");
-
-console.log("First person after adding Dami:", queue.peek());
-console.log("Size after adding Dami:", queue.size);
+    queue.enqueue("Dami");
+    assert.equal(queue.peek(), "Dami");
+    assert.equal(queue.size, 1);
+});
