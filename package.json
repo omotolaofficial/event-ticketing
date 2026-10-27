@@ -1,0 +1,12 @@
+{
+  "name": "eventticketting",
+  "version": "1.0.0",
+  "description": "Event Ticketing capstone - Build 1",
+  "license": "ISC",
+  "type": "module",
+  "scripts": {
+    "demo": "node scripts/demo.js",
+    "benchmark": "node scripts/benchmark-lookup.js",
+    "test": "node --test"
+  }
+}
