@@ -15,3 +15,16 @@
 - `npm test`: 12 passed, 0 failed, 0 skipped.
 - `npm run demo`: completed successfully; Bayo's 2-ticket request was rejected, his separate 1-ticket request succeeded, and after Ada cancelled, Chika received the released tickets with 0 tickets remaining.
 - `npm run benchmark`: completed successfully; 100,000 bookings and 500 lookups measured `Array.find()` at 440.05 ms and `Map.get()` at 0.33 ms in this run. These timings vary and are not a correctness test.
+
+## 2026-10-28 — Build 2 event search and booking-total validation
+
+### Prompt and changes
+
+- The prompt requested Build 2 event sorting, search, publishing, and acceptance tests. The implementation added a stable merge sort, pure event filters and sorting, public event summaries, publishing and unpublishing, and Node tests for the Build 2 stories.
+- During final review, a booking using `Number.MAX_SAFE_INTEGER` cents and quantity 3 produced an imprecise total. `bookTickets` now checks the multiplied total with `Number.isSafeInteger` and rejects it with `VALIDATION` before generating a booking reference or mutating inventory or booking records.
+- Added a regression test that verifies the unsafe booking leaves the tier, bookings, and reference lookup unchanged.
+
+### Verification
+
+- `npm test`: 38 passed, 0 failed.
+- The Build 2 specification is `docs/build-2.md` in this workspace, and the references in that file use the correct filename.

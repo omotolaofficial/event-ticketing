@@ -12,19 +12,114 @@ export function createStore() {
     };
 }
 
-export function createEvent(store, name) {
-    if (typeof name !== "string" || name.trim() === "") {
-        throw new DomainError("Event name is required", "VALIDATION");
+function isValidIsoDate(value) {
+    if (typeof value !== "string") {
+        return false;
+    }
+
+    const match = /^(\d{4})-(\d{2})-(\d{2})(?:T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)?)?$/.exec(value);
+
+    if (!match || !Number.isFinite(Date.parse(value))) {
+        return false;
+    }
+
+    const [, year, month, day] = match;
+    const calendarDate = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+
+    return calendarDate.getUTCFullYear() === Number(year)
+        && calendarDate.getUTCMonth() === Number(month) - 1
+        && calendarDate.getUTCDate() === Number(day);
+}
+
+export function createEvent(store, details) {
+    const isLegacyEvent = typeof details === "string";
+    const title = isLegacyEvent
+        ? details.trim()
+        : typeof details?.title === "string"
+            ? details.title.trim()
+            : "";
+
+    if (!title) {
+        throw new DomainError(
+            isLegacyEvent ? "Event name is required" : "Event title is required",
+            "VALIDATION"
+        );
+    }
+
+    if (!isLegacyEvent) {
+        if (typeof details.city !== "string" || details.city.trim() === "") {
+            throw new DomainError("Event city is required", "VALIDATION");
+        }
+
+        if (typeof details.venue !== "string" || details.venue.trim() === "") {
+            throw new DomainError("Event venue is required", "VALIDATION");
+        }
+
+        if (!isValidIsoDate(details.date)) {
+            throw new DomainError("Event date must be a valid ISO date", "VALIDATION");
+        }
     }
 
     const event = {
         id: newId(),
-        name: name.trim(),
+        name: title,
+        title,
+        city: isLegacyEvent ? undefined : details.city.trim(),
+        venue: isLegacyEvent ? undefined : details.venue.trim(),
+        date: isLegacyEvent ? undefined : details.date,
+        published: false,
         tiers: new Map()
     };
 
     store.events.set(event.id, event);
     return event;
+}
+
+export function publishEvent(store, eventId) {
+    const event = store.events.get(eventId);
+
+    if (!event) {
+        throw new DomainError("Event not found", "NOT_FOUND");
+    }
+
+    if (event.tiers.size === 0) {
+        throw new DomainError("An event needs at least one ticket tier to be published", "INVALID_STATE");
+    }
+
+    event.published = true;
+    return event;
+}
+
+export function unpublishEvent(store, eventId) {
+    const event = store.events.get(eventId);
+
+    if (!event) {
+        throw new DomainError("Event not found", "NOT_FOUND");
+    }
+
+    event.published = false;
+    return event;
+}
+
+export function listEventSummaries(store, { publishedOnly = true } = {}) {
+    return [...store.events.values()]
+        .filter(event => !publishedOnly || event.published)
+        .map(event => ({
+            id: event.id,
+            title: event.title ?? event.name,
+            city: event.city,
+            venue: event.venue,
+            date: event.date,
+            published: event.published,
+            tiers: [...event.tiers.values()].map(tier => ({
+                id: tier.id,
+                name: tier.name,
+                priceCents: tier.priceCents,
+                capacity: tier.capacity,
+                sold: tier.sold,
+                seatsLeft: tier.capacity - tier.sold
+            }))
+        }));
 }
 
 export function addTier(store, eventId, name, priceCents, capacity) {
@@ -89,6 +184,12 @@ export function bookTickets(store, eventId, tierId, customerName, quantity) {
         throw new DomainError("Not enough tickets available", "SOLD_OUT");
     }
 
+    const total = tier.priceCents * quantity;
+
+    if (!Number.isSafeInteger(total)) {
+        throw new DomainError("Booking total must be a safe whole number of cents", "VALIDATION");
+    }
+
     let reference = newReference();
 
     while (store.bookingsByReference.has(reference)) {
@@ -102,7 +203,8 @@ export function bookTickets(store, eventId, tierId, customerName, quantity) {
         tierId,
         customerName: customerName.trim(),
         quantity,
-        status: "confirmed"
+        totalPriceCents: total,
+        status: event.published ? "pending" : "confirmed"
     };
 
     tier.sold += quantity;
